@@ -233,38 +233,6 @@ export default function QuizPlatform() {
 
   return (
     <div className="app">
-      <style>{`
-        * { box-sizing: border-box; }
-        body { margin: 0; background: #f8fafc; color: #0f172a; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-        button, input { font: inherit; }
-        .app { min-height: 100vh; }
-        .shell { max-width: 1000px; margin: 0 auto; padding: 30px 18px; }
-        .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 20px; }
-        .card { background: white; border: 1px solid #e2e8f0; border-radius: 18px; padding: 22px; box-shadow: 0 8px 24px rgba(15, 23, 42, .06); margin-top: 16px; }
-        .button { border: 0; border-radius: 12px; padding: 11px 16px; background: #4f46e5; color: white; font-weight: 750; cursor: pointer; }
-        .button:hover { filter: brightness(.96); }
-        .button:disabled { opacity: .45; cursor: not-allowed; }
-        .secondary { color: #0f172a; background: white; border: 1px solid #cbd5e1; }
-        .danger { background: #dc2626; }
-        .muted { color: #64748b; }
-        .badge { display: inline-block; padding: 5px 9px; border-radius: 999px; color: #4338ca; background: #eef2ff; font-size: 12px; font-weight: 750; }
-        .error, .success { margin-top: 16px; border-radius: 12px; padding: 13px; }
-        .error { color: #b91c1c; background: #fef2f2; }
-        .success { color: #166534; background: #f0fdf4; }
-        .hidden { display: none; }
-        .progress { height: 8px; border-radius: 99px; background: #e2e8f0; overflow: hidden; margin: 18px 0; }
-        .bar { height: 100%; background: #4f46e5; transition: width .2s ease; }
-        .answer { display: flex; align-items: center; gap: 12px; width: 100%; margin: 10px 0; padding: 15px; border: 1px solid #cbd5e1; border-radius: 14px; background: white; cursor: pointer; }
-        .answer input { width: 20px; height: 20px; flex: 0 0 auto; accent-color: #4f46e5; }
-        .answer.selected { border: 2px solid #4f46e5; background: #eef2ff; }
-        .answer.correct { border: 2px solid #16a34a; background: #f0fdf4; }
-        .answer.wrong { border: 2px solid #dc2626; background: #fef2f2; }
-        .result { font-size: 46px; font-weight: 900; }
-        h1 { margin: 0 0 8px; font-size: clamp(32px, 6vw, 48px); }
-        h2 { margin-top: 0; }
-      `}</style>
-
       {screen === "library" && (
         <main className="shell">
           <div className="top">
