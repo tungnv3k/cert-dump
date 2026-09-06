@@ -602,6 +602,62 @@ function Player({ session, setSession, quiz, onExit }) {
     }
   }
 
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (session.finished || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+
+
+      const target = event.target;
+      const isEditable =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT");
+
+
+      if (isEditable) return;
+
+
+      const answerNumber = Number(event.key);
+      if (
+        Number.isInteger(answerNumber) &&
+        answerNumber >= 1 &&
+        answerNumber <= 4 &&
+        answerNumber <= question.options.length
+      ) {
+        event.preventDefault();
+        choose(answerNumber - 1);
+        return;
+      }
+
+
+      if (event.key === "ArrowLeft" && session.current > 0) {
+        event.preventDefault();
+        move(-1);
+      }
+
+
+      if (event.key === "ArrowRight" && !lastQuestion) {
+        event.preventDefault();
+        move(1);
+      }
+    }
+
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    checked,
+    lastQuestion,
+    question.options.length,
+    session.current,
+    session.finished,
+    session.mode,
+  ]);
+
+
   function ResultStat({ label, value }) {
     return (
       <div className="rounded-lg border border-border bg-muted/40 p-4 text-center">
