@@ -1,5 +1,4 @@
-
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -61,9 +60,9 @@ function parseRows(text, delimiter = ";") {
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
     const next = text[index + 1];
-    const characterCode = character.charCodeAt(0);
-    const nextCode = next?.charCodeAt(0);
-    const isLineBreak = characterCode === 10 || characterCode === 13;
+    const characterCode = character.charCodeAt(0);
+    const nextCode = next?.charCodeAt(0);
+    const isLineBreak = characterCode === 10 || characterCode === 13;
     if (character === '"' && quoted && next === '"') {
       value += '"';
       index += 1;
@@ -72,8 +71,8 @@ function parseRows(text, delimiter = ";") {
     } else if (character === delimiter && !quoted) {
       row.push(value.trim());
       value = "";
-    } else if (isLineBreak && !quoted) {
-      if (characterCode === 13 && nextCode === 10) index += 1;
+    } else if (isLineBreak && !quoted) {
+      if (characterCode === 13 && nextCode === 10) index += 1;
       row.push(value.trim());
       if (row.some(Boolean)) rows.push(row);
       row = [];
@@ -85,10 +84,16 @@ function parseRows(text, delimiter = ";") {
 
   if (quoted) throw new Error("CSV contains an unclosed quoted value.");
 
-
   row.push(value.trim());
   if (row.some(Boolean)) rows.push(row);
   return rows;
+}
+
+function detectCsvDelimiter(text) {
+  const firstLine = text.split(/\r?\n/, 1)[0];
+  const semicolonCount = (firstLine.match(/;/g) || []).length;
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  return commaCount > semicolonCount ? "," : ";";
 }
 
 function normalizeQuestion(question, index) {
@@ -106,16 +111,18 @@ function normalizeQuestion(question, index) {
       ? question.answer
       : [question.answer];
 
-  const correctAnswers = [...new Set(
-    rawCorrect
-      .map(Number)
-      .filter(
-        (answer) =>
-          Number.isInteger(answer) &&
-          answer >= 0 &&
-          answer < question.options.length,
-      ),
-  )].sort((a, b) => a - b);
+  const correctAnswers = [
+    ...new Set(
+      rawCorrect
+        .map(Number)
+        .filter(
+          (answer) =>
+            Number.isInteger(answer) &&
+            answer >= 0 &&
+            answer < question.options.length,
+        ),
+    ),
+  ].sort((a, b) => a - b);
 
   if (!correctAnswers.length) {
     throw new Error(`Invalid answer for question ${index + 1}.`);
@@ -154,7 +161,8 @@ function normalizeQuiz(data, fallbackTitle) {
 }
 
 function parseCsv(text, filename) {
-  const rows = parseRows(text.replace(/^\uFEFF/, ""));
+  const cleanText = text.replace(/^\uFEFF/, "");
+  const rows = parseRows(cleanText, detectCsvDelimiter(cleanText));
   if (rows.length < 2) throw new Error("CSV has no question rows.");
 
   const headers = rows[0].map((header) => header.toLowerCase().trim());
@@ -187,7 +195,9 @@ function parseCsv(text, filename) {
         .map((item) => {
           const match = item.match(/^([A-Z])\.\s*(.+)$/i);
           if (!match) {
-            throw new Error(`Invalid answer format on CSV row ${rowIndex + 2}.`);
+            throw new Error(
+              `Invalid answer format on CSV row ${rowIndex + 2}.`,
+            );
           }
           return { key: match[1].toUpperCase(), text: match[2].trim() };
         });
@@ -201,21 +211,25 @@ function parseCsv(text, filename) {
         throw new Error(`Duplicate answer letters on CSV row ${rowIndex + 2}.`);
       }
 
-      const correctAnswers = [...new Set(
-        rawCorrect
-          .split(",")
-          .map((key) => key.trim().toUpperCase())
-          .filter(Boolean)
-          .map((key) => {
-            const answerIndex = options.findIndex((option) => option.key === key);
-            if (answerIndex < 0) {
-              throw new Error(
-                `Correct answer ${key} was not found on CSV row ${rowIndex + 2}.`,
+      const correctAnswers = [
+        ...new Set(
+          rawCorrect
+            .split(",")
+            .map((key) => key.trim().toUpperCase())
+            .filter(Boolean)
+            .map((key) => {
+              const answerIndex = options.findIndex(
+                (option) => option.key === key,
               );
-            }
-            return answerIndex;
-          }),
-      )].sort((a, b) => a - b);
+              if (answerIndex < 0) {
+                throw new Error(
+                  `Correct answer ${key} was not found on CSV row ${rowIndex + 2}.`,
+                );
+              }
+              return answerIndex;
+            }),
+        ),
+      ].sort((a, b) => a - b);
 
       return normalizeQuestion(
         {
@@ -247,10 +261,39 @@ function answersMatch(selected = [], correct = []) {
 function loadQuizzes() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    return Array.isArray(saved) ? saved : [];
+    if (!Array.isArray(saved)) return [];
+
+    const quizIds = new Set();
+    return saved.reduce((validQuizzes, item) => {
+      try {
+        const quiz = normalizeQuiz(item, item?.title);
+        if (quizIds.has(quiz.id)) quiz.id = uid();
+        quizIds.add(quiz.id);
+
+        const questionIds = new Set();
+        quiz.questions = quiz.questions.map((question) => {
+          if (questionIds.has(question.id)) return { ...question, id: uid() };
+          questionIds.add(question.id);
+          return question;
+        });
+        validQuizzes.push(quiz);
+      } catch {
+        return validQuizzes;
+      }
+      return validQuizzes;
+    }, []);
   } catch {
     return [];
   }
+}
+
+function ResultStat({ label, value }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 p-4 text-center">
+      <div className="text-3xl font-bold tracking-tight">{value}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{label}</div>
+    </div>
+  );
 }
 
 export default function QuizPlatform() {
@@ -268,15 +311,23 @@ export default function QuizPlatform() {
   );
 
   useEffect(() => {
+    let cancelled = false;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(quizzes));
     } catch {
-      setMessage({
-        type: "error",
-        title: "Save failed",
-        text: "Browser storage is unavailable or full.",
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setMessage({
+            type: "error",
+            title: "Save failed",
+            text: "Browser storage is unavailable or full.",
+          });
+        }
       });
     }
+    return () => {
+      cancelled = true;
+    };
   }, [quizzes]);
 
   async function importFiles(event) {
@@ -308,7 +359,36 @@ export default function QuizPlatform() {
         }
       }
 
-      setQuizzes((current) => [...current, ...imported]);
+      setQuizzes((current) => {
+        const quizIds = new Set(current.map((quiz) => quiz.id));
+        const questionIds = new Set(
+          current.flatMap((quiz) =>
+            quiz.questions.map((question) => question.id),
+          ),
+        );
+        const uniqueImported = imported.map((quiz) => {
+          const importedQuestionIds = new Set();
+          const uniqueQuiz = {
+            ...quiz,
+            id: quizIds.has(quiz.id) ? uid() : quiz.id,
+            questions: quiz.questions.map((question) => ({
+              ...question,
+              id:
+                questionIds.has(question.id) ||
+                importedQuestionIds.has(question.id)
+                  ? uid()
+                  : question.id,
+            })),
+          };
+          quizIds.add(uniqueQuiz.id);
+          uniqueQuiz.questions.forEach((question) => {
+            questionIds.add(question.id);
+            importedQuestionIds.add(question.id);
+          });
+          return uniqueQuiz;
+        });
+        return [...current, ...uniqueImported];
+      });
       setMessage({
         type: "success",
         title: "Import complete",
@@ -318,7 +398,8 @@ export default function QuizPlatform() {
       setMessage({
         type: "error",
         title: "Import failed",
-        text: error instanceof Error ? error.message : "Unable to import files.",
+        text:
+          error instanceof Error ? error.message : "Unable to import files.",
       });
     } finally {
       setImporting(false);
@@ -463,8 +544,8 @@ export default function QuizPlatform() {
                         <AlertDialogHeader>
                           <AlertDialogTitle>Delete this quiz?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            “{quiz.title}” and all its questions will be removed from
-                            this browser.
+                            “{quiz.title}” and all its questions will be removed
+                            from this browser.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -502,12 +583,15 @@ export default function QuizPlatform() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Learning mode gives instant feedback. Test mode shows results after
-                submission.
+                Learning mode gives instant feedback. Test mode shows results
+                after submission.
               </p>
             </CardContent>
             <CardFooter className="flex-col gap-3 sm:flex-row">
-              <Button className="w-full sm:w-auto" onClick={() => start("learn")}>
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => start("learn")}
+              >
                 Start learning
               </Button>
               <Button
@@ -552,34 +636,40 @@ function Player({ session, setSession, quiz, onExit }) {
     [session.answers, session.questions],
   );
 
-  function choose(index) {
-    if (session.mode === "learn" && checked) return;
+  const choose = useCallback(
+    (index) => {
+      if (session.mode === "learn" && checked) return;
 
-    setSession((current) => {
-      const active = current.questions[current.current];
-      const previous = current.answers[current.current] || [];
-      const next = active.multiple
-        ? previous.includes(index)
-          ? previous.filter((answer) => answer !== index)
-          : [...previous, index].sort((a, b) => a - b)
-        : [index];
+      setSession((current) => {
+        const active = current.questions[current.current];
+        const previous = current.answers[current.current] || [];
+        const next = active.multiple
+          ? previous.includes(index)
+            ? previous.filter((answer) => answer !== index)
+            : [...previous, index].sort((a, b) => a - b)
+          : [index];
 
-      return {
+        return {
+          ...current,
+          answers: { ...current.answers, [current.current]: next },
+        };
+      });
+    },
+    [checked, session.mode, setSession],
+  );
+
+  const move = useCallback(
+    (delta) => {
+      setSession((current) => ({
         ...current,
-        answers: { ...current.answers, [current.current]: next },
-      };
-    });
-  }
-
-  function move(delta) {
-    setSession((current) => ({
-      ...current,
-      current: Math.max(
-        0,
-        Math.min(current.questions.length - 1, current.current + delta),
-      ),
-    }));
-  }
+        current: Math.max(
+          0,
+          Math.min(current.questions.length - 1, current.current + delta),
+        ),
+      }));
+    },
+    [setSession],
+  );
 
   function primaryAction() {
     if (session.mode === "learn" && !checked) {
@@ -602,193 +692,164 @@ function Player({ session, setSession, quiz, onExit }) {
     }
   }
 
-  useEffect(() => {
-    function handleKeyDown(event) {
-      if (session.finished || event.altKey || event.ctrlKey || event.metaKey) {
-        return;
-      }
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (session.finished || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
 
+      const target = event.target;
+      const isEditable =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT");
 
-      const target = event.target;
-      const isEditable =
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT");
+      if (isEditable) return;
 
+      const answerNumber = Number(event.key);
+      if (
+        Number.isInteger(answerNumber) &&
+        answerNumber >= 1 &&
+        answerNumber <= 4 &&
+        answerNumber <= question.options.length
+      ) {
+        event.preventDefault();
+        choose(answerNumber - 1);
+        return;
+      }
 
-      if (isEditable) return;
+      if (event.key === "ArrowLeft" && session.current > 0) {
+        event.preventDefault();
+        move(-1);
+      }
 
+      if (event.key === "ArrowRight" && !lastQuestion) {
+        event.preventDefault();
+        move(1);
+      }
+    }
 
-      const answerNumber = Number(event.key);
-      if (
-        Number.isInteger(answerNumber) &&
-        answerNumber >= 1 &&
-        answerNumber <= 4 &&
-        answerNumber <= question.options.length
-      ) {
-        event.preventDefault();
-        choose(answerNumber - 1);
-        return;
-      }
-
-
-      if (event.key === "ArrowLeft" && session.current > 0) {
-        event.preventDefault();
-        move(-1);
-      }
-
-
-      if (event.key === "ArrowRight" && !lastQuestion) {
-        event.preventDefault();
-        move(1);
-      }
-    }
-
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    checked,
-    lastQuestion,
-    question.options.length,
-    session.current,
-    session.finished,
-    session.mode,
-  ]);
-
-
-  function ResultStat({ label, value }) {
-    return (
-      <div className="rounded-lg border border-border bg-muted/40 p-4 text-center">
-        <div className="text-3xl font-bold tracking-tight">{value}</div>
-        <div className="mt-1 text-sm text-muted-foreground">{label}</div>
-      </div>
-    );
-  }
-
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [checked, choose, lastQuestion, move, question.options.length, session]);
 
   if (session.finished) {
     const percentage = Math.round((score / session.questions.length) * 100);
-    const answeredCount = session.questions.filter(
-      (_, index) => (session.answers[index] || []).length > 0,
-    ).length;
-    const unansweredCount = session.questions.length - answeredCount;
-
+    const answeredCount = session.questions.filter(
+      (_, index) => (session.answers[index] || []).length > 0,
+    ).length;
+    const unansweredCount = session.questions.length - answeredCount;
 
     return (
-      <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:py-12">
+      <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:py-12">
         <Card>
           <CardHeader className="text-center">
-            <div className="mx-auto mb-2 flex size-16 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <CheckCircle2 className="size-8" aria-hidden="true" />
-            </div>
+            <div className="mx-auto mb-2 flex size-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <CheckCircle2 className="size-8" aria-hidden="true" />
+            </div>
             <CardTitle className="text-3xl">Test complete</CardTitle>
             <CardDescription>{quiz.title}</CardDescription>
           </CardHeader>
-
-
-          <CardContent className="space-y-8">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <ResultStat
-                label="Score"
-                value={`${score}/${session.questions.length}`}
-              />
-              <ResultStat label="Percentage" value={`${percentage}%`} />
-              <ResultStat label="Unanswered" value={unansweredCount} />
+          <CardContent className="space-y-8">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <ResultStat
+                label="Score"
+                value={`${score}/${session.questions.length}`}
+              />
+              <ResultStat label="Percentage" value={`${percentage}%`} />
+              <ResultStat label="Unanswered" value={unansweredCount} />
             </div>
+            <section
+              className="space-y-4"
+              aria-labelledby="answer-review-title"
+            >
+              <div>
+                <h2 id="answer-review-title" className="text-xl font-semibold">
+                  Answer review
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Review your responses and the correct answers.
+                </p>
+              </div>
+              <div className="space-y-4">
+                {session.questions.map((item, index) => {
+                  const userAnswers = session.answers[index] || [];
+                  const itemCorrect = answersMatch(
+                    userAnswers,
+                    item.correctAnswers,
+                  );
+                  const userAnswerText = userAnswers.length
+                    ? userAnswers
+                        .map((answerIndex) => item.options[answerIndex])
+                        .join(", ")
+                    : "No answer provided";
+                  const correctAnswerText = item.correctAnswers
+                    .map((answerIndex) => item.options[answerIndex])
+                    .join(", ");
 
-
-            <section className="space-y-4" aria-labelledby="answer-review-title">
-              <div>
-                <h2 id="answer-review-title" className="text-xl font-semibold">
-                  Answer review
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Review your responses and the correct answers.
-                </p>
-              </div>
-
-
-              <div className="space-y-4">
-                {session.questions.map((item, index) => {
-                  const userAnswers = session.answers[index] || [];
-                  const itemCorrect = answersMatch(
-                    userAnswers,
-                    item.correctAnswers,
-                  );
-                  const userAnswerText = userAnswers.length
-                    ? userAnswers
-                        .map((answerIndex) => item.options[answerIndex])
-                        .join(", ")
-                    : "No answer provided";
-                  const correctAnswerText = item.correctAnswers
-                    .map((answerIndex) => item.options[answerIndex])
-                    .join(", ");
-
-
-                  return (
-                    <Card key={item.id} className="shadow-none">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start gap-3">
-                          {itemCorrect ? (
-                            <CheckCircle2
-                              className="mt-0.5 size-5 shrink-0 text-emerald-600 dark:text-emerald-400"
-                              aria-hidden="true"
-                            />
-                          ) : (
-                            <XCircle
-                              className="mt-0.5 size-5 shrink-0 text-destructive"
-                              aria-hidden="true"
-                            />
-                          )}
-                          <div className="min-w-0 space-y-1">
-                            <Badge
-                              variant={itemCorrect ? "secondary" : "destructive"}
-                            >
-                              {itemCorrect ? "Correct" : "Incorrect"}
-                            </Badge>
-                            <CardTitle className="text-base leading-relaxed">
-                              {index + 1}. {item.question}
-                            </CardTitle>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-2 text-sm">
-                        <p>
-                          <span className="font-medium">Your answer:</span>{" "}
-                          <span className="text-muted-foreground">
-                            {userAnswerText}
-                          </span>
-                        </p>
-                        {!itemCorrect && (
-                          <p>
-                            <span className="font-medium">Correct answer:</span>{" "}
-                            <span className="text-emerald-700 dark:text-emerald-400">
-                              {correctAnswerText}
-                            </span>
-                          </p>
-                        )}
-                        {item.explanation && (
-                          <Alert className="mt-3">
-                            <AlertTitle>Explanation</AlertTitle>
-                            <AlertDescription>
-                              {item.explanation}
-                            </AlertDescription>
-                          </Alert>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </section>
+                  return (
+                    <Card key={item.id} className="shadow-none">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start gap-3">
+                          {itemCorrect ? (
+                            <CheckCircle2
+                              className="mt-0.5 size-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <XCircle
+                              className="mt-0.5 size-5 shrink-0 text-destructive"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <div className="min-w-0 space-y-1">
+                            <Badge
+                              variant={
+                                itemCorrect ? "secondary" : "destructive"
+                              }
+                            >
+                              {itemCorrect ? "Correct" : "Incorrect"}
+                            </Badge>
+                            <CardTitle className="text-base leading-relaxed">
+                              {index + 1}. {item.question}
+                            </CardTitle>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        <p>
+                          <span className="font-medium">Your answer:</span>
+                          <span className="text-muted-foreground">
+                            {userAnswerText}
+                          </span>
+                        </p>
+                        {!itemCorrect && (
+                          <p>
+                            <span className="font-medium">Correct answer:</span>
+                            <span className="text-emerald-700 dark:text-emerald-400">
+                              {correctAnswerText}
+                            </span>
+                          </p>
+                        )}
+                        {item.explanation && (
+                          <Alert className="mt-3">
+                            <AlertTitle>Explanation</AlertTitle>
+                            <AlertDescription>
+                              {item.explanation}
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
           </CardContent>
-
-
           <CardFooter className="flex-col justify-center gap-3 sm:flex-row">
             <Button
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto"
               onClick={() =>
                 setSession({
                   mode: session.mode,
@@ -804,10 +865,10 @@ function Player({ session, setSession, quiz, onExit }) {
               Retry test
             </Button>
             <Button
-              className="w-full sm:w-auto"
-              variant="outline"
-              onClick={onExit}
-            >
+              className="w-full sm:w-auto"
+              variant="outline"
+              onClick={onExit}
+            >
               Back to quiz
             </Button>
           </CardFooter>
@@ -819,7 +880,8 @@ function Player({ session, setSession, quiz, onExit }) {
   function stateClasses(index) {
     const isSelected = selected.includes(index);
     const isCorrect = checked && question.correctAnswers.includes(index);
-    const isWrong = checked && isSelected && !question.correctAnswers.includes(index);
+    const isWrong =
+      checked && isSelected && !question.correctAnswers.includes(index);
 
     if (isCorrect) {
       return "border-emerald-600 bg-emerald-50 dark:bg-emerald-950/30";
@@ -939,7 +1001,8 @@ function Player({ session, setSession, quiz, onExit }) {
               <AlertDescription>
                 {!correct && (
                   <span>
-                    Correct answer: {question.correctAnswers
+                    Correct answer:
+                    {question.correctAnswers
                       .map((index) => question.options[index])
                       .join(", ")}
                   </span>
