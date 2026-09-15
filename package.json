@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "seed:test": "node scripts/seed-test-data.js",
+    "seed:test:clean": "node scripts/seed-test-data.js --clean"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

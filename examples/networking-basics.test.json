@@ -1,0 +1,24 @@
+{
+  "title": "TEST - Networking Basics",
+  "description": "Sample question bank for verifying the MongoDB connection.",
+  "questions": [
+    {
+      "question": "Which OSI layer is responsible for routing?",
+      "options": ["Physical", "Data Link", "Network", "Transport"],
+      "correctAnswers": [2],
+      "explanation": "Routing happens at Layer 3, the Network layer."
+    },
+    {
+      "question": "Which of these are transport layer protocols?",
+      "options": ["TCP", "UDP", "IP", "HTTP"],
+      "correctAnswers": [0, 1],
+      "explanation": "TCP and UDP operate at the transport layer; IP is network layer and HTTP is application layer."
+    },
+    {
+      "question": "What port does HTTPS use by default?",
+      "options": ["21", "80", "443", "8080"],
+      "correctAnswers": [2],
+      "explanation": "HTTPS defaults to port 443."
+    }
+  ]
+}

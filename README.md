@@ -38,8 +38,25 @@ connection string, then run `vercel dev` (via `npx vercel dev`) so both the
 Vite frontend and the `/api` functions are served together. Running plain
 `vite dev` alone will not serve `/api` routes.
 
+## Verifying the connection / test data
+
+- `examples/` has a sample CSV and a sample JSON question bank you can import
+  through the app's "Import CSV/JSON" button to manually exercise the full
+  import → create quiz → learn/test flow against your database.
+- `pnpm run seed:test` connects directly with Mongoose (using `MONGODB_URI`
+  from your environment) and creates two `[TEST]`-prefixed question banks
+  plus a combined quiz, then prints counts back — a quick way to confirm the
+  connection string works without going through the UI:
+  ```bash
+  MONGODB_URI="mongodb+srv://..." pnpm run seed:test
+  ```
+  Remove the seeded data again with `pnpm run seed:test:clean` (or delete it
+  from the UI — it's easy to spot by its `[TEST]` title prefix).
+
 ## Scripts
 
 - `pnpm dev` — Vite dev server (frontend only)
 - `pnpm build` — production build
 - `pnpm lint` — ESLint
+- `pnpm run seed:test` / `pnpm run seed:test:clean` — seed/remove test data
+  directly in MongoDB (see above)
