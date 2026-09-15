@@ -14,7 +14,12 @@ import {
   XCircle,
 } from "lucide-react";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -370,42 +375,33 @@ export default function QuizPlatform() {
     [banks, selectedBankIds],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadData() {
-      setLoading(true);
-      try {
-        const [loadedBanks, loadedQuizzes] = await Promise.all([
-          apiRequest("/banks"),
-          apiRequest("/quizzes"),
-        ]);
-        if (!cancelled) {
-          setBanks(loadedBanks);
-          setQuizzes(loadedQuizzes);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setMessage({
-            type: "error",
-            title: "Couldn't load your data",
-            text: error.message,
-          });
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [loadedBanks, loadedQuizzes] = await Promise.all([
+        apiRequest("/banks"),
+        apiRequest("/quizzes"),
+      ]);
+      setBanks(loadedBanks);
+      setQuizzes(loadedQuizzes);
+      setMessage(null);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        title: "Couldn't load your data",
+        text: error.message,
+        retry: loadData,
+      });
+    } finally {
+      setLoading(false);
     }
-
-    loadData();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  async function importFiles(event) {
-    const files = Array.from(event.target.files || []);
-    if (!files.length) return;
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  async function runImport(files) {
     setImporting(true);
 
     try {
@@ -449,11 +445,18 @@ export default function QuizPlatform() {
         title: "Import failed",
         text:
           error instanceof Error ? error.message : "Unable to import files.",
+        retry: () => runImport(files),
       });
     } finally {
       setImporting(false);
-      event.target.value = "";
     }
+  }
+
+  async function importFiles(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) return;
+    await runImport(files);
   }
 
   function toggleBankSelection(bankId) {
@@ -488,6 +491,7 @@ export default function QuizPlatform() {
         type: "error",
         title: "Delete failed",
         text: error.message,
+        retry: () => deleteBank(bankId),
       });
     }
   }
@@ -525,6 +529,7 @@ export default function QuizPlatform() {
         type: "error",
         title: "Couldn't create quiz",
         text: error.message,
+        retry: () => confirmCreateQuiz(),
       });
     }
   }
@@ -547,6 +552,7 @@ export default function QuizPlatform() {
         type: "error",
         title: "Delete failed",
         text: error.message,
+        retry: () => deleteQuiz(quizId),
       });
     }
   }
@@ -630,6 +636,14 @@ export default function QuizPlatform() {
               )}
               <AlertTitle>{message.title}</AlertTitle>
               <AlertDescription>{message.text}</AlertDescription>
+              {message.retry && (
+                <AlertAction>
+                  <Button variant="outline" size="sm" onClick={message.retry}>
+                    <RotateCcw className="mr-1.5 size-3.5" aria-hidden="true" />
+                    Retry
+                  </Button>
+                </AlertAction>
+              )}
             </Alert>
           )}
 
