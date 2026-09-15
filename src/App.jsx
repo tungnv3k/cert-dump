@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   FileUp,
   GraduationCap,
+  Layers,
+  ListChecks,
   RotateCcw,
   Trash2,
   XCircle,
@@ -34,11 +36,21 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
-const STORAGE_KEY = "quiz-studio-v4";
+const STORAGE_KEY = "quiz-studio-v5";
 const uid = () =>
   globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 
@@ -249,6 +261,27 @@ function parseCsv(text, filename) {
   };
 }
 
+function mergeBanksIntoQuiz(selectedBanks, title) {
+  const questionIds = new Set();
+  const questions = selectedBanks.flatMap((bank) =>
+    bank.questions.map((question) => {
+      const id = questionIds.has(question.id) ? uid() : question.id;
+      questionIds.add(id);
+      return { ...question, id };
+    }),
+  );
+
+  return {
+    id: uid(),
+    title: title.trim() || "Untitled quiz",
+    description:
+      selectedBanks.length === 1
+        ? selectedBanks[0].description
+        : `Combined from ${selectedBanks.map((bank) => bank.title).join(", ")}`,
+    questions,
+  };
+}
+
 function answersMatch(selected = [], correct = []) {
   const left = [...selected].sort((a, b) => a - b);
   const right = [...correct].sort((a, b) => a - b);
@@ -258,32 +291,41 @@ function answersMatch(selected = [], correct = []) {
   );
 }
 
-function loadQuizzes() {
+function normalizeCollection(source) {
+  if (!Array.isArray(source)) return [];
+
+  const ids = new Set();
+  return source.reduce((valid, item) => {
+    try {
+      const entry = normalizeQuiz(item, item?.title);
+      if (ids.has(entry.id)) entry.id = uid();
+      ids.add(entry.id);
+
+      const questionIds = new Set();
+      entry.questions = entry.questions.map((question) => {
+        if (questionIds.has(question.id)) return { ...question, id: uid() };
+        questionIds.add(question.id);
+        return question;
+      });
+      valid.push(entry);
+    } catch {
+      // skip invalid entries
+    }
+    return valid;
+  }, []);
+}
+
+function loadState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    if (!Array.isArray(saved)) return [];
-
-    const quizIds = new Set();
-    return saved.reduce((validQuizzes, item) => {
-      try {
-        const quiz = normalizeQuiz(item, item?.title);
-        if (quizIds.has(quiz.id)) quiz.id = uid();
-        quizIds.add(quiz.id);
-
-        const questionIds = new Set();
-        quiz.questions = quiz.questions.map((question) => {
-          if (questionIds.has(question.id)) return { ...question, id: uid() };
-          questionIds.add(question.id);
-          return question;
-        });
-        validQuizzes.push(quiz);
-      } catch {
-        return validQuizzes;
-      }
-      return validQuizzes;
-    }, []);
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    const bankSource = Array.isArray(raw) ? raw : raw?.banks;
+    const quizSource = Array.isArray(raw) ? [] : raw?.quizzes;
+    return {
+      banks: normalizeCollection(bankSource),
+      quizzes: normalizeCollection(quizSource),
+    };
   } catch {
-    return [];
+    return { banks: [], quizzes: [] };
   }
 }
 
@@ -296,13 +338,44 @@ function ResultStat({ label, value }) {
   );
 }
 
+function TopNav({ screen, onNavigate }) {
+  const tabs = [
+    { id: "banks", label: "Question banks", icon: Layers },
+    { id: "quizzes", label: "Quizzes", icon: ListChecks },
+  ];
+
+  return (
+    <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => onNavigate(tab.id)}
+          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+            screen === tab.id
+              ? "bg-background text-foreground shadow-xs"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <tab.icon className="size-4" aria-hidden="true" />
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function QuizPlatform() {
-  const [quizzes, setQuizzes] = useState(loadQuizzes);
-  const [screen, setScreen] = useState("library");
+  const [banks, setBanks] = useState(() => loadState().banks);
+  const [quizzes, setQuizzes] = useState(() => loadState().quizzes);
+  const [screen, setScreen] = useState("banks");
   const [activeQuizId, setActiveQuizId] = useState(null);
   const [session, setSession] = useState(null);
   const [message, setMessage] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [selectedBankIds, setSelectedBankIds] = useState(() => new Set());
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [quizDraftTitle, setQuizDraftTitle] = useState("");
   const inputRef = useRef(null);
 
   const activeQuiz = useMemo(
@@ -310,10 +383,15 @@ export default function QuizPlatform() {
     [quizzes, activeQuizId],
   );
 
+  const selectedBanks = useMemo(
+    () => banks.filter((bank) => selectedBankIds.has(bank.id)),
+    [banks, selectedBankIds],
+  );
+
   useEffect(() => {
     let cancelled = false;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(quizzes));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ banks, quizzes }));
     } catch {
       queueMicrotask(() => {
         if (!cancelled) {
@@ -328,7 +406,7 @@ export default function QuizPlatform() {
     return () => {
       cancelled = true;
     };
-  }, [quizzes]);
+  }, [banks, quizzes]);
 
   async function importFiles(event) {
     const files = Array.from(event.target.files || []);
@@ -347,7 +425,7 @@ export default function QuizPlatform() {
           const data = JSON.parse(text);
           if (Array.isArray(data.quizzes)) {
             imported.push(
-              ...data.quizzes.map((quiz) => normalizeQuiz(quiz, file.name)),
+              ...data.quizzes.map((bank) => normalizeQuiz(bank, file.name)),
             );
           } else {
             imported.push(
@@ -359,19 +437,17 @@ export default function QuizPlatform() {
         }
       }
 
-      setQuizzes((current) => {
-        const quizIds = new Set(current.map((quiz) => quiz.id));
+      setBanks((current) => {
+        const bankIds = new Set(current.map((bank) => bank.id));
         const questionIds = new Set(
-          current.flatMap((quiz) =>
-            quiz.questions.map((question) => question.id),
-          ),
+          current.flatMap((bank) => bank.questions.map((q) => q.id)),
         );
-        const uniqueImported = imported.map((quiz) => {
+        const uniqueImported = imported.map((bank) => {
           const importedQuestionIds = new Set();
-          const uniqueQuiz = {
-            ...quiz,
-            id: quizIds.has(quiz.id) ? uid() : quiz.id,
-            questions: quiz.questions.map((question) => ({
+          const uniqueBank = {
+            ...bank,
+            id: bankIds.has(bank.id) ? uid() : bank.id,
+            questions: bank.questions.map((question) => ({
               ...question,
               id:
                 questionIds.has(question.id) ||
@@ -380,19 +456,19 @@ export default function QuizPlatform() {
                   : question.id,
             })),
           };
-          quizIds.add(uniqueQuiz.id);
-          uniqueQuiz.questions.forEach((question) => {
+          bankIds.add(uniqueBank.id);
+          uniqueBank.questions.forEach((question) => {
             questionIds.add(question.id);
             importedQuestionIds.add(question.id);
           });
-          return uniqueQuiz;
+          return uniqueBank;
         });
         return [...current, ...uniqueImported];
       });
       setMessage({
         type: "success",
         title: "Import complete",
-        text: `${imported.length} quiz${imported.length === 1 ? "" : "zes"} added.`,
+        text: `${imported.length} question bank${imported.length === 1 ? "" : "s"} added.`,
       });
     } catch (error) {
       setMessage({
@@ -407,6 +483,57 @@ export default function QuizPlatform() {
     }
   }
 
+  function toggleBankSelection(bankId) {
+    setSelectedBankIds((current) => {
+      const next = new Set(current);
+      if (next.has(bankId)) next.delete(bankId);
+      else next.add(bankId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedBankIds((current) =>
+      current.size === banks.length
+        ? new Set()
+        : new Set(banks.map((bank) => bank.id)),
+    );
+  }
+
+  function deleteBank(bankId) {
+    setBanks((current) => current.filter((bank) => bank.id !== bankId));
+    setSelectedBankIds((current) => {
+      if (!current.has(bankId)) return current;
+      const next = new Set(current);
+      next.delete(bankId);
+      return next;
+    });
+  }
+
+  function openCreateDialog() {
+    if (!selectedBanks.length) return;
+    setQuizDraftTitle(
+      selectedBanks.length === 1
+        ? selectedBanks[0].title
+        : selectedBanks.map((bank) => bank.title).join(" + "),
+    );
+    setCreateDialogOpen(true);
+  }
+
+  function confirmCreateQuiz() {
+    if (!selectedBanks.length) return;
+    const quiz = mergeBanksIntoQuiz(selectedBanks, quizDraftTitle);
+    setQuizzes((current) => [...current, quiz]);
+    setSelectedBankIds(new Set());
+    setCreateDialogOpen(false);
+    setScreen("quizzes");
+    setMessage({
+      type: "success",
+      title: "Quiz created",
+      text: `"${quiz.title}" is ready with ${quiz.questions.length} questions.`,
+    });
+  }
+
   function openQuiz(quiz) {
     setActiveQuizId(quiz.id);
     setScreen("detail");
@@ -416,7 +543,7 @@ export default function QuizPlatform() {
     setQuizzes((current) => current.filter((quiz) => quiz.id !== quizId));
     if (activeQuizId === quizId) {
       setActiveQuizId(null);
-      setScreen("library");
+      setScreen("quizzes");
     }
   }
 
@@ -435,7 +562,7 @@ export default function QuizPlatform() {
 
   function exitPlayer() {
     setSession(null);
-    setScreen(activeQuiz ? "detail" : "library");
+    setScreen(activeQuiz ? "detail" : "quizzes");
   }
 
   return (
@@ -444,8 +571,8 @@ export default function QuizPlatform() {
         {message?.text}
       </div>
 
-      {screen === "library" && (
-        <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
+      {(screen === "banks" || screen === "quizzes") && (
+        <main className="mx-auto w-full max-w-6xl px-4 py-8 pb-28 sm:px-6 lg:py-12">
           <header className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-2">
               <div className="flex items-center gap-3">
@@ -457,7 +584,8 @@ export default function QuizPlatform() {
                 </h1>
               </div>
               <p className="text-muted-foreground">
-                Import CSV or JSON question banks and practice at your pace.
+                Import CSV or JSON question banks, select the ones you want,
+                and combine them into a quiz.
               </p>
             </div>
 
@@ -478,6 +606,10 @@ export default function QuizPlatform() {
             </Button>
           </header>
 
+          <div className="mt-6">
+            <TopNav screen={screen} onNavigate={setScreen} />
+          </div>
+
           {message && (
             <Alert
               variant={message.type === "error" ? "destructive" : "default"}
@@ -497,79 +629,259 @@ export default function QuizPlatform() {
             </Alert>
           )}
 
-          {!quizzes.length ? (
-            <Card className="mt-8 border-dashed">
-              <CardContent className="flex min-h-64 flex-col items-center justify-center gap-4 text-center">
-                <GraduationCap className="size-10 text-muted-foreground" />
-                <div className="space-y-1">
-                  <h2 className="text-xl font-semibold">No quizzes yet</h2>
+          {screen === "banks" &&
+            (!banks.length ? (
+              <Card className="mt-8 border-dashed">
+                <CardContent className="flex min-h-64 flex-col items-center justify-center gap-4 text-center">
+                  <Layers className="size-10 text-muted-foreground" />
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-semibold">
+                      No question banks yet
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      Import one or more files to begin. Each file becomes
+                      its own question bank.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => inputRef.current?.click()}
+                  >
+                    Choose files
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <div className="mt-8 flex items-center justify-between">
                   <p className="text-sm text-muted-foreground">
-                    Import a question bank to begin.
+                    Select one or more question banks, then create a quiz.
                   </p>
+                  <Button variant="ghost" size="sm" onClick={toggleSelectAll}>
+                    {selectedBankIds.size === banks.length
+                      ? "Clear selection"
+                      : "Select all"}
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={() => inputRef.current?.click()}
-                >
-                  Choose files
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {quizzes.map((quiz) => (
-                <Card key={quiz.id} className="flex flex-col">
-                  <CardHeader className="flex-1">
-                    <Badge variant="secondary" className="mb-3 w-fit">
-                      {quiz.questions.length} questions
-                    </Badge>
-                    <CardTitle>{quiz.title}</CardTitle>
-                    <CardDescription>{quiz.description}</CardDescription>
-                  </CardHeader>
-                  <CardFooter className="gap-3">
-                    <Button className="flex-1" onClick={() => openQuiz(quiz)}>
-                      Open quiz
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          aria-label={`Delete ${quiz.title}`}
-                        >
-                          <Trash2 className="size-4 text-destructive" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete this quiz?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            “{quiz.title}” and all its questions will be removed
-                            from this browser.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            onClick={() => deleteQuiz(quiz.id)}
+                <div className="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                  {banks.map((bank) => {
+                    const isSelected = selectedBankIds.has(bank.id);
+                    return (
+                      <Card
+                        key={bank.id}
+                        role="checkbox"
+                        aria-checked={isSelected}
+                        tabIndex={0}
+                        onClick={() => toggleBankSelection(bank.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            toggleBankSelection(bank.id);
+                          }
+                        }}
+                        className={`flex cursor-pointer flex-col transition-colors ${
+                          isSelected
+                            ? "border-primary ring-1 ring-primary"
+                            : "hover:bg-muted/40"
+                        }`}
+                      >
+                        <CardHeader className="flex-1">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <Badge variant="secondary" className="w-fit">
+                              {bank.questions.length} questions
+                            </Badge>
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() =>
+                                toggleBankSelection(bank.id)
+                              }
+                              onClick={(event) => event.stopPropagation()}
+                              aria-label={`Select ${bank.title}`}
+                            />
+                          </div>
+                          <CardTitle>{bank.title}</CardTitle>
+                          <CardDescription>{bank.description}</CardDescription>
+                        </CardHeader>
+                        <CardFooter className="justify-end">
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                aria-label={`Delete ${bank.title}`}
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <Trash2 className="size-4 text-destructive" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Delete this question bank?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  "{bank.title}" and all its questions will be
+                                  removed from this browser. Quizzes already
+                                  created from it will not be affected.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  onClick={() => deleteBank(bank.id)}
+                                >
+                                  Delete bank
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </CardFooter>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </>
+            ))}
+
+          {screen === "quizzes" &&
+            (!quizzes.length ? (
+              <Card className="mt-8 border-dashed">
+                <CardContent className="flex min-h-64 flex-col items-center justify-center gap-4 text-center">
+                  <ListChecks className="size-10 text-muted-foreground" />
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-semibold">No quizzes yet</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Select one or more question banks and create a quiz to
+                      start learning or testing.
+                    </p>
+                  </div>
+                  <Button variant="outline" onClick={() => setScreen("banks")}>
+                    Go to question banks
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {quizzes.map((quiz) => (
+                  <Card key={quiz.id} className="flex flex-col">
+                    <CardHeader className="flex-1">
+                      <Badge variant="secondary" className="mb-3 w-fit">
+                        {quiz.questions.length} questions
+                      </Badge>
+                      <CardTitle>{quiz.title}</CardTitle>
+                      <CardDescription>{quiz.description}</CardDescription>
+                    </CardHeader>
+                    <CardFooter className="gap-3">
+                      <Button className="flex-1" onClick={() => openQuiz(quiz)}>
+                        Open quiz
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            aria-label={`Delete ${quiz.title}`}
                           >
-                            Delete quiz
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
-          )}
+                            <Trash2 className="size-4 text-destructive" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete this quiz?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              "{quiz.title}" will be removed from this
+                              browser. The source question banks are not
+                              affected.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={() => deleteQuiz(quiz.id)}
+                            >
+                              Delete quiz
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            ))}
         </main>
       )}
 
+      {screen === "banks" && selectedBanks.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
+          <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-4 py-4 sm:flex-row sm:px-6">
+            <p className="text-sm font-medium">
+              {selectedBanks.length} question bank
+              {selectedBanks.length === 1 ? "" : "s"} selected (
+              {selectedBanks.reduce(
+                (sum, bank) => sum + bank.questions.length,
+                0,
+              )}{" "}
+              questions)
+            </p>
+            <div className="flex gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => setSelectedBankIds(new Set())}
+              >
+                Clear
+              </Button>
+              <Button onClick={openCreateDialog}>Create quiz</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create quiz</DialogTitle>
+            <DialogDescription>
+              Combine {selectedBanks.length} question bank
+              {selectedBanks.length === 1 ? "" : "s"} into a new quiz:{" "}
+              {selectedBanks.map((bank) => bank.title).join(", ")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="quiz-title">Quiz name</Label>
+            <Input
+              id="quiz-title"
+              autoFocus
+              value={quizDraftTitle}
+              onChange={(event) => setQuizDraftTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  confirmCreateQuiz();
+                }
+              }}
+              placeholder="e.g. Practice exam"
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose>Cancel</DialogClose>
+            <Button onClick={confirmCreateQuiz}>
+              Create quiz (
+              {selectedBanks.reduce(
+                (sum, bank) => sum + bank.questions.length,
+                0,
+              )}{" "}
+              questions)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {screen === "detail" && activeQuiz && (
         <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:py-12">
-          <Button variant="ghost" onClick={() => setScreen("library")}>
+          <Button variant="ghost" onClick={() => setScreen("quizzes")}>
             <ArrowLeft className="mr-2 size-4" />
             All quizzes
           </Button>
