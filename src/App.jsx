@@ -8,6 +8,7 @@ import {
   GraduationCap,
   Layers,
   ListChecks,
+  Loader2,
   RotateCcw,
   Trash2,
   XCircle,
@@ -50,9 +51,28 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
-const STORAGE_KEY = "quiz-studio-v5";
-const uid = () =>
-  globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+const API_BASE = "/api";
+
+async function apiRequest(path, options) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Request failed (${response.status}).`;
+    try {
+      const data = await response.json();
+      if (data?.error) errorMessage = data.error;
+    } catch {
+      // response had no JSON body; keep the generic message
+    }
+    throw new Error(errorMessage);
+  }
+
+  if (response.status === 204) return null;
+  return response.json();
+}
 
 function shuffle(items) {
   const copy = [...items];
@@ -146,7 +166,6 @@ function normalizeQuestion(question, index) {
   }
 
   return {
-    id: question.id || uid(),
     question: String(question.question).trim(),
     options,
     correctAnswers,
@@ -165,7 +184,6 @@ function normalizeQuiz(data, fallbackTitle) {
   }
 
   return {
-    id: source.id || uid(),
     title: String(source.title || fallbackTitle || "Untitled quiz").trim(),
     description: String(source.description || "Imported question bank").trim(),
     questions: source.questions.map(normalizeQuestion),
@@ -254,7 +272,6 @@ function parseCsv(text, filename) {
     });
 
   return {
-    id: uid(),
     title: filename.replace(/\.csv$/i, ""),
     description: `Imported from ${filename}`,
     questions,
@@ -262,17 +279,19 @@ function parseCsv(text, filename) {
 }
 
 function mergeBanksIntoQuiz(selectedBanks, title) {
-  const questionIds = new Set();
   const questions = selectedBanks.flatMap((bank) =>
-    bank.questions.map((question) => {
-      const id = questionIds.has(question.id) ? uid() : question.id;
-      questionIds.add(id);
-      return { ...question, id };
-    }),
+    bank.questions.map(
+      ({ question, options, correctAnswers, multiple, explanation }) => ({
+        question,
+        options,
+        correctAnswers,
+        multiple,
+        explanation,
+      }),
+    ),
   );
 
   return {
-    id: uid(),
     title: title.trim() || "Untitled quiz",
     description:
       selectedBanks.length === 1
@@ -289,44 +308,6 @@ function answersMatch(selected = [], correct = []) {
     left.length === right.length &&
     left.every((answer, index) => answer === right[index])
   );
-}
-
-function normalizeCollection(source) {
-  if (!Array.isArray(source)) return [];
-
-  const ids = new Set();
-  return source.reduce((valid, item) => {
-    try {
-      const entry = normalizeQuiz(item, item?.title);
-      if (ids.has(entry.id)) entry.id = uid();
-      ids.add(entry.id);
-
-      const questionIds = new Set();
-      entry.questions = entry.questions.map((question) => {
-        if (questionIds.has(question.id)) return { ...question, id: uid() };
-        questionIds.add(question.id);
-        return question;
-      });
-      valid.push(entry);
-    } catch {
-      // skip invalid entries
-    }
-    return valid;
-  }, []);
-}
-
-function loadState() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    const bankSource = Array.isArray(raw) ? raw : raw?.banks;
-    const quizSource = Array.isArray(raw) ? [] : raw?.quizzes;
-    return {
-      banks: normalizeCollection(bankSource),
-      quizzes: normalizeCollection(quizSource),
-    };
-  } catch {
-    return { banks: [], quizzes: [] };
-  }
 }
 
 function ResultStat({ label, value }) {
@@ -366,8 +347,9 @@ function TopNav({ screen, onNavigate }) {
 }
 
 export default function QuizPlatform() {
-  const [banks, setBanks] = useState(() => loadState().banks);
-  const [quizzes, setQuizzes] = useState(() => loadState().quizzes);
+  const [banks, setBanks] = useState([]);
+  const [quizzes, setQuizzes] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [screen, setScreen] = useState("banks");
   const [activeQuizId, setActiveQuizId] = useState(null);
   const [session, setSession] = useState(null);
@@ -390,23 +372,36 @@ export default function QuizPlatform() {
 
   useEffect(() => {
     let cancelled = false;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ banks, quizzes }));
-    } catch {
-      queueMicrotask(() => {
+
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [loadedBanks, loadedQuizzes] = await Promise.all([
+          apiRequest("/banks"),
+          apiRequest("/quizzes"),
+        ]);
+        if (!cancelled) {
+          setBanks(loadedBanks);
+          setQuizzes(loadedQuizzes);
+        }
+      } catch (error) {
         if (!cancelled) {
           setMessage({
             type: "error",
-            title: "Save failed",
-            text: "Browser storage is unavailable or full.",
+            title: "Couldn't load your data",
+            text: error.message,
           });
         }
-      });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
+
+    loadData();
     return () => {
       cancelled = true;
     };
-  }, [banks, quizzes]);
+  }, []);
 
   async function importFiles(event) {
     const files = Array.from(event.target.files || []);
@@ -437,38 +432,16 @@ export default function QuizPlatform() {
         }
       }
 
-      setBanks((current) => {
-        const bankIds = new Set(current.map((bank) => bank.id));
-        const questionIds = new Set(
-          current.flatMap((bank) => bank.questions.map((q) => q.id)),
-        );
-        const uniqueImported = imported.map((bank) => {
-          const importedQuestionIds = new Set();
-          const uniqueBank = {
-            ...bank,
-            id: bankIds.has(bank.id) ? uid() : bank.id,
-            questions: bank.questions.map((question) => ({
-              ...question,
-              id:
-                questionIds.has(question.id) ||
-                importedQuestionIds.has(question.id)
-                  ? uid()
-                  : question.id,
-            })),
-          };
-          bankIds.add(uniqueBank.id);
-          uniqueBank.questions.forEach((question) => {
-            questionIds.add(question.id);
-            importedQuestionIds.add(question.id);
-          });
-          return uniqueBank;
-        });
-        return [...current, ...uniqueImported];
+      const created = await apiRequest("/banks", {
+        method: "POST",
+        body: JSON.stringify(imported),
       });
+
+      setBanks((current) => [...current, ...created]);
       setMessage({
         type: "success",
         title: "Import complete",
-        text: `${imported.length} question bank${imported.length === 1 ? "" : "s"} added.`,
+        text: `${created.length} question bank${created.length === 1 ? "" : "s"} added.`,
       });
     } catch (error) {
       setMessage({
@@ -500,14 +473,23 @@ export default function QuizPlatform() {
     );
   }
 
-  function deleteBank(bankId) {
-    setBanks((current) => current.filter((bank) => bank.id !== bankId));
-    setSelectedBankIds((current) => {
-      if (!current.has(bankId)) return current;
-      const next = new Set(current);
-      next.delete(bankId);
-      return next;
-    });
+  async function deleteBank(bankId) {
+    try {
+      await apiRequest(`/banks/${bankId}`, { method: "DELETE" });
+      setBanks((current) => current.filter((bank) => bank.id !== bankId));
+      setSelectedBankIds((current) => {
+        if (!current.has(bankId)) return current;
+        const next = new Set(current);
+        next.delete(bankId);
+        return next;
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        title: "Delete failed",
+        text: error.message,
+      });
+    }
   }
 
   function openCreateDialog() {
@@ -520,18 +502,31 @@ export default function QuizPlatform() {
     setCreateDialogOpen(true);
   }
 
-  function confirmCreateQuiz() {
+  async function confirmCreateQuiz() {
     if (!selectedBanks.length) return;
-    const quiz = mergeBanksIntoQuiz(selectedBanks, quizDraftTitle);
-    setQuizzes((current) => [...current, quiz]);
-    setSelectedBankIds(new Set());
-    setCreateDialogOpen(false);
-    setScreen("quizzes");
-    setMessage({
-      type: "success",
-      title: "Quiz created",
-      text: `"${quiz.title}" is ready with ${quiz.questions.length} questions.`,
-    });
+    const draft = mergeBanksIntoQuiz(selectedBanks, quizDraftTitle);
+
+    try {
+      const created = await apiRequest("/quizzes", {
+        method: "POST",
+        body: JSON.stringify(draft),
+      });
+      setQuizzes((current) => [...current, created]);
+      setSelectedBankIds(new Set());
+      setCreateDialogOpen(false);
+      setScreen("quizzes");
+      setMessage({
+        type: "success",
+        title: "Quiz created",
+        text: `"${created.title}" is ready with ${created.questions.length} questions.`,
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        title: "Couldn't create quiz",
+        text: error.message,
+      });
+    }
   }
 
   function openQuiz(quiz) {
@@ -539,11 +534,20 @@ export default function QuizPlatform() {
     setScreen("detail");
   }
 
-  function deleteQuiz(quizId) {
-    setQuizzes((current) => current.filter((quiz) => quiz.id !== quizId));
-    if (activeQuizId === quizId) {
-      setActiveQuizId(null);
-      setScreen("quizzes");
+  async function deleteQuiz(quizId) {
+    try {
+      await apiRequest(`/quizzes/${quizId}`, { method: "DELETE" });
+      setQuizzes((current) => current.filter((quiz) => quiz.id !== quizId));
+      if (activeQuizId === quizId) {
+        setActiveQuizId(null);
+        setScreen("quizzes");
+      }
+    } catch (error) {
+      setMessage({
+        type: "error",
+        title: "Delete failed",
+        text: error.message,
+      });
     }
   }
 
@@ -629,7 +633,14 @@ export default function QuizPlatform() {
             </Alert>
           )}
 
-          {screen === "banks" &&
+          {loading && (
+            <div className="mt-8 flex min-h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
+              <Loader2 className="size-6 animate-spin" aria-hidden="true" />
+              <p className="text-sm">Loading your data from MongoDB…</p>
+            </div>
+          )}
+
+          {!loading && screen === "banks" &&
             (!banks.length ? (
               <Card className="mt-8 border-dashed">
                 <CardContent className="flex min-h-64 flex-col items-center justify-center gap-4 text-center">
@@ -744,7 +755,7 @@ export default function QuizPlatform() {
               </>
             ))}
 
-          {screen === "quizzes" &&
+          {!loading && screen === "quizzes" &&
             (!quizzes.length ? (
               <Card className="mt-8 border-dashed">
                 <CardContent className="flex min-h-64 flex-col items-center justify-center gap-4 text-center">

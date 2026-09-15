@@ -1,16 +1,45 @@
-# React + Vite
+# Quiz Studio
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Import CSV/JSON question banks, combine them into quizzes, and practice in
+learning or test mode. Built with React + Vite on the frontend and a
+MongoDB-backed API (Mongoose) under `api/`, deployed together on Vercel.
 
-Currently, two official plugins are available:
+## How data is stored
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+All question banks and quizzes are saved in MongoDB — nothing is kept in
+browser storage. The frontend talks to serverless functions under `/api`:
 
-## React Compiler
+- `GET/POST /api/banks`, `DELETE /api/banks/:id`
+- `GET/POST /api/quizzes`, `DELETE /api/quizzes/:id`
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Mongoose models live in `api/_lib/models.js`; the connection is cached
+across warm serverless invocations in `api/_lib/db.js`.
 
-## Expanding the ESLint configuration
+## MongoDB setup on Vercel
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+1. Create a free cluster at [MongoDB Atlas](https://www.mongodb.com/atlas)
+   (or use any reachable MongoDB instance) and grab its connection string
+   (Database → Connect → Drivers).
+2. In your Vercel project, go to **Settings → Environment Variables** and
+   add a variable named:
+
+   ```
+   MONGODB_URI
+   ```
+
+   with your connection string as the value, e.g.
+   `mongodb+srv://<user>:<password>@<cluster>.mongodb.net/cert-dump?retryWrites=true&w=majority`.
+   Add it for Production, Preview, and Development.
+3. Redeploy. The API functions read `process.env.MONGODB_URI` on each
+   request.
+
+For local development, copy `.env.example` to `.env` and fill in your own
+connection string, then run `vercel dev` (via `npx vercel dev`) so both the
+Vite frontend and the `/api` functions are served together. Running plain
+`vite dev` alone will not serve `/api` routes.
+
+## Scripts
+
+- `pnpm dev` — Vite dev server (frontend only)
+- `pnpm build` — production build
+- `pnpm lint` — ESLint
