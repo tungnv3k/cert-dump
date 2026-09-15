@@ -39,16 +39,23 @@ something to look at without anyone running a script. It's idempotent
    request.
 
 For local development, copy `.env.example` to `.env` and fill in your own
-connection string, then run `vercel dev` (via `npx vercel dev`) so both the
-Vite frontend and the `/api` functions are served together. Running plain
-`vite dev` alone will not serve `/api` routes.
+connection string, then run the API server and the UI dev server in two
+terminals:
+
+```bash
+pnpm run dev:api   # vercel dev, serves /api on http://localhost:3001
+pnpm dev           # vite, serves the UI and proxies /api to :3001
+```
+
+Start `dev:api` first so the proxy has something to talk to. Running plain
+`pnpm dev` on its own will not serve `/api` routes.
 
 ## Verifying the connection / mock data
 
 Once `MONGODB_URI` is set and the app is deployed (or run locally with
-`vercel dev`), just open it — the `[MOCK]` question banks and quiz appear
-automatically on first connection, which confirms the database is reachable
-and writable without running anything by hand.
+`pnpm run dev:api` + `pnpm dev`), just open it — the `[MOCK]` question banks
+and quiz appear automatically on first connection, which confirms the
+database is reachable and writable without running anything by hand.
 
 `pnpm run seed:test` triggers the same check manually (useful if you want to
 confirm connectivity from the command line) and prints the resulting
@@ -77,7 +84,9 @@ flag is on.
 
 ## Scripts
 
-- `pnpm dev` — Vite dev server (frontend only)
+- `pnpm dev` — Vite dev server (frontend only, proxies `/api` to `:3001`)
+- `pnpm run dev:api` — `vercel dev` on port 3001, serves the `/api`
+  serverless functions locally
 - `pnpm build` — production build
 - `pnpm lint` — ESLint
 - `pnpm run seed:test` / `pnpm run seed:test:clean` — manually trigger/remove
