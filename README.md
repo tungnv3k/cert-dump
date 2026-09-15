@@ -59,6 +59,22 @@ MONGODB_URI="mongodb+srv://..." pnpm run seed:test
 MONGODB_URI="mongodb+srv://..." pnpm run seed:test:clean
 ```
 
+## Mobile debugging (Eruda)
+
+Setting `VITE_ENABLE_DEVTOOLS=true` at build time bundles
+[Eruda](https://github.com/liriliri/eruda), an on-page devtools console, and
+initializes it on load. It shows as a small floating button in the corner of
+the screen — tap it to expand a console/network/elements panel, same idea as
+Nuxt DevTools. Useful for debugging on a phone where you can't attach normal
+browser devtools.
+
+This is a Vite client env var, so it's baked into the JS bundle at build
+time, not read at runtime — set it in Vercel's Environment Variables (for
+whichever of Production/Preview/Development you want it in) and redeploy, or
+export it before running `pnpm build` / `pnpm dev` locally. Leave it unset
+for a normal deploy; Eruda is only fetched (as a separate chunk) when the
+flag is on.
+
 ## Scripts
 
 - `pnpm dev` — Vite dev server (frontend only)
