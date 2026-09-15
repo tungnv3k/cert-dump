@@ -13,7 +13,12 @@ browser storage. The frontend talks to serverless functions under `/api`:
 - `GET/POST /api/quizzes`, `DELETE /api/quizzes/:id`
 
 Mongoose models live in `api/_lib/models.js`; the connection is cached
-across warm serverless invocations in `api/_lib/db.js`.
+across warm serverless invocations in `api/_lib/db.js`. The first time that
+connection is established (once per cold start), `api/_lib/seed-data.js`
+checks each collection and creates a couple of `[MOCK]`-prefixed question
+banks and a combined quiz if they're missing — so a fresh database has
+something to look at without anyone running a script. It's idempotent
+(checked by title before inserting), so it's safe on every deploy.
 
 ## MongoDB setup on Vercel
 
@@ -38,25 +43,26 @@ connection string, then run `vercel dev` (via `npx vercel dev`) so both the
 Vite frontend and the `/api` functions are served together. Running plain
 `vite dev` alone will not serve `/api` routes.
 
-## Verifying the connection / test data
+## Verifying the connection / mock data
 
-- `examples/` has a sample CSV and a sample JSON question bank you can import
-  through the app's "Import CSV/JSON" button to manually exercise the full
-  import → create quiz → learn/test flow against your database.
-- `pnpm run seed:test` connects directly with Mongoose (using `MONGODB_URI`
-  from your environment) and creates two `[TEST]`-prefixed question banks
-  plus a combined quiz, then prints counts back — a quick way to confirm the
-  connection string works without going through the UI:
-  ```bash
-  MONGODB_URI="mongodb+srv://..." pnpm run seed:test
-  ```
-  Remove the seeded data again with `pnpm run seed:test:clean` (or delete it
-  from the UI — it's easy to spot by its `[TEST]` title prefix).
+Once `MONGODB_URI` is set and the app is deployed (or run locally with
+`vercel dev`), just open it — the `[MOCK]` question banks and quiz appear
+automatically on first connection, which confirms the database is reachable
+and writable without running anything by hand.
+
+`pnpm run seed:test` triggers the same check manually (useful if you want to
+confirm connectivity from the command line) and prints the resulting
+document counts. `pnpm run seed:test:clean` removes the `[MOCK]`-prefixed
+documents again:
+```bash
+MONGODB_URI="mongodb+srv://..." pnpm run seed:test
+MONGODB_URI="mongodb+srv://..." pnpm run seed:test:clean
+```
 
 ## Scripts
 
 - `pnpm dev` — Vite dev server (frontend only)
 - `pnpm build` — production build
 - `pnpm lint` — ESLint
-- `pnpm run seed:test` / `pnpm run seed:test:clean` — seed/remove test data
-  directly in MongoDB (see above)
+- `pnpm run seed:test` / `pnpm run seed:test:clean` — manually trigger/remove
+  the mock data seed (see above; it also runs automatically on first connect)

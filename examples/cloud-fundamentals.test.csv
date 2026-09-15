@@ -1,4 +1,0 @@
-question,answers,correct answers
-Which service model gives you the most control over the underlying infrastructure?,A. SaaS|B. PaaS|C. IaaS|D. FaaS,C
-Which of these are common cloud deployment models?,A. Public|B. Private|C. Hybrid|D. Monolithic,"A,B,C"
-What does elasticity mean in cloud computing?,A. Data is encrypted at rest|B. Resources scale automatically with demand|C. Servers never fail|D. Billing is fixed monthly,B
