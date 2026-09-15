@@ -1008,7 +1008,7 @@ function Player({ session, setSession, quiz, onExit }) {
     [setSession],
   );
 
-  function primaryAction() {
+  const primaryAction = useCallback(() => {
     if (session.mode === "learn" && !checked) {
       if (!selected.length) return;
       setSession((current) => ({
@@ -1027,7 +1027,7 @@ function Player({ session, setSession, quiz, onExit }) {
     } else {
       move(1);
     }
-  }
+  }, [checked, lastQuestion, move, onExit, selected.length, session.mode, setSession]);
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -1061,15 +1061,23 @@ function Player({ session, setSession, quiz, onExit }) {
         move(-1);
       }
 
-      if (event.key === "ArrowRight" && !lastQuestion) {
+      if (event.key === "ArrowRight") {
         event.preventDefault();
-        move(1);
+        primaryAction();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [checked, choose, lastQuestion, move, question.options.length, session]);
+  }, [
+    checked,
+    choose,
+    lastQuestion,
+    move,
+    primaryAction,
+    question.options.length,
+    session,
+  ]);
 
   if (session.finished) {
     const percentage = Math.round((score / session.questions.length) * 100);
