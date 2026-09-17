@@ -283,6 +283,29 @@ function parseCsv(text, filename) {
   };
 }
 
+function parseJson(text, filename) {
+  const data = JSON.parse(text);
+  if (Array.isArray(data.quizzes)) {
+    return [...data.quizzes.map((bank) => normalizeQuiz(bank, filename))];
+  }
+  return normalizeQuiz(data, filename.replace(/\.json$/i, ""));
+}
+
+async function parseImports(files) {
+  for (const file of files) {
+    const text = await file.text();
+    const lowerName = file.name.toLowerCase();
+
+    if (lowerName.endsWith(".csv")) {
+      return parseCsv(text, file.name);
+    } else if (lowerName.endsWith(".json")) {
+      return parseJson(text, file.name);
+    } else {
+      throw new Error(`${file.name} is not a CSV or JSON file.`);
+    }
+  }
+}
+
 function mergeBanksIntoQuiz(selectedBanks, title) {
   const questions = selectedBanks.flatMap((bank) =>
     bank.questions.map(
@@ -405,28 +428,7 @@ export default function QuizPlatform() {
     setImporting(true);
 
     try {
-      const imported = [];
-      for (const file of files) {
-        const text = await file.text();
-        const lowerName = file.name.toLowerCase();
-
-        if (lowerName.endsWith(".csv")) {
-          imported.push(parseCsv(text, file.name));
-        } else if (lowerName.endsWith(".json")) {
-          const data = JSON.parse(text);
-          if (Array.isArray(data.quizzes)) {
-            imported.push(
-              ...data.quizzes.map((bank) => normalizeQuiz(bank, file.name)),
-            );
-          } else {
-            imported.push(
-              normalizeQuiz(data, file.name.replace(/\.json$/i, "")),
-            );
-          }
-        } else {
-          throw new Error(`${file.name} is not a CSV or JSON file.`);
-        }
-      }
+      const imported = await parseImports(files);
 
       const created = await apiRequest("/banks", {
         method: "POST",
@@ -850,7 +852,7 @@ export default function QuizPlatform() {
               {selectedBanks.reduce(
                 (sum, bank) => sum + bank.questions.length,
                 0,
-              )}{" "}
+              )}
               questions)
             </p>
             <div className="flex gap-3">
@@ -872,7 +874,7 @@ export default function QuizPlatform() {
             <DialogTitle>Create quiz</DialogTitle>
             <DialogDescription>
               Combine {selectedBanks.length} question bank
-              {selectedBanks.length === 1 ? "" : "s"} into a new quiz:{" "}
+              {selectedBanks.length === 1 ? "" : "s"} into a new quiz:
               {selectedBanks.map((bank) => bank.title).join(", ")}
             </DialogDescription>
           </DialogHeader>
@@ -899,7 +901,7 @@ export default function QuizPlatform() {
               {selectedBanks.reduce(
                 (sum, bank) => sum + bank.questions.length,
                 0,
-              )}{" "}
+              )}
               questions)
             </Button>
           </DialogFooter>
