@@ -249,7 +249,7 @@ function parseCsv(text, filename) {
       const correctAnswers = [
         ...new Set(
           rawCorrect
-            .split(",")
+            .split("|")
             .map((key) => key.trim().toUpperCase())
             .filter(Boolean)
             .map((key) => {
@@ -594,8 +594,8 @@ export default function QuizPlatform() {
                 </h1>
               </div>
               <p className="text-muted-foreground">
-                Import CSV or JSON question banks, select the ones you want,
-                and combine them into a quiz.
+                Import CSV or JSON question banks, select the ones you want, and
+                combine them into a quiz.
               </p>
             </div>
 
@@ -654,7 +654,8 @@ export default function QuizPlatform() {
             </div>
           )}
 
-          {!loading && screen === "banks" &&
+          {!loading &&
+            screen === "banks" &&
             (!banks.length ? (
               <Card className="mt-8 border-dashed">
                 <CardContent className="flex min-h-64 flex-col items-center justify-center gap-4 text-center">
@@ -664,8 +665,8 @@ export default function QuizPlatform() {
                       No question banks yet
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                      Import one or more files to begin. Each file becomes
-                      its own question bank.
+                      Import one or more files to begin. Each file becomes its
+                      own question bank.
                     </p>
                   </div>
                   <Button
@@ -734,7 +735,6 @@ export default function QuizPlatform() {
                                 variant="outline"
                                 size="icon"
                                 aria-label={`Delete ${bank.title}`}
-                                onClick={(event) => event.stopPropagation()}
                               >
                                 <Trash2 className="size-4 text-destructive" />
                               </Button>
@@ -769,7 +769,8 @@ export default function QuizPlatform() {
               </>
             ))}
 
-          {!loading && screen === "quizzes" &&
+          {!loading &&
+            screen === "quizzes" &&
             (!quizzes.length ? (
               <Card className="mt-8 border-dashed">
                 <CardContent className="flex min-h-64 flex-col items-center justify-center gap-4 text-center">
@@ -813,11 +814,12 @@ export default function QuizPlatform() {
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Delete this quiz?</AlertDialogTitle>
+                            <AlertDialogTitle>
+                              Delete this quiz?
+                            </AlertDialogTitle>
                             <AlertDialogDescription>
-                              "{quiz.title}" will be removed from this
-                              browser. The source question banks are not
-                              affected.
+                              "{quiz.title}" will be removed from this browser.
+                              The source question banks are not affected.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -1027,7 +1029,15 @@ function Player({ session, setSession, quiz, onExit }) {
     } else {
       move(1);
     }
-  }, [checked, lastQuestion, move, onExit, selected.length, session.mode, setSession]);
+  }, [
+    checked,
+    lastQuestion,
+    move,
+    onExit,
+    selected.length,
+    session.mode,
+    setSession,
+  ]);
 
   useEffect(() => {
     function handleKeyDown(event) {
