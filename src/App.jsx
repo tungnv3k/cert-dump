@@ -55,6 +55,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import TxtEditor from "./TxtEditor";
 
 const API_BASE = "/api";
 
@@ -609,13 +610,21 @@ export default function QuizPlatform() {
               accept=".csv,.json,application/json,text/csv"
               onChange={importFiles}
             />
-            <Button
-              onClick={() => inputRef.current?.click()}
-              disabled={importing}
-            >
-              <FileUp className="mr-2 size-4" aria-hidden="true" />
-              {importing ? "Importing..." : "Import CSV/JSON"}
-            </Button>
+
+            <div className="flex flex-col gap-1">
+              <Button
+                onClick={() => inputRef.current?.click()}
+                disabled={importing}
+              >
+                <FileUp className="size-4" aria-hidden="true" />
+                {importing ? "Importing..." : "Import CSV/JSON"}
+              </Button>
+
+              <Button onClick={() => setScreen("txtEditor")}>
+                <FileUp className="size-4" aria-hidden="true" />
+                Import TXT
+              </Button>
+            </div>
           </header>
 
           <div className="mt-6">
@@ -954,6 +963,10 @@ export default function QuizPlatform() {
           quiz={activeQuiz}
           onExit={exitPlayer}
         />
+      )}
+
+      {screen === "txtEditor" && (
+        <TxtEditor onBack={() => setScreen("banks")} />
       )}
     </div>
   );
