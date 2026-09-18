@@ -1,0 +1,12 @@
+strictly follow the next instructions, do not explain or infer anything.
+you are given a text file containing transcript of a quiz with answers, containing:
+the question, the answers (in full starting with A, B, C, D...),
+the correct answers (only A, B, C, D...) are after the words: Correct answer.
+after that the correct answers are in full. then comes the question again.
+only when the transcript is given, then continue with the following process.
+replace all new lines in file with spaces (one-liner)
+remove all the duplicated "answers in full" with "correct answers in full".
+finally, generate the output file as a downloadable csv file with 3 semicolon separated columns:
+question, answers, correct answers.
+answers (in full) and correct answers (only A, B, C, D...) are separated by the character '|'.
+if you are given another file, start the process again from beginning.
